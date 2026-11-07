@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload box</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f4f6fa; color: #111; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  input[type=file] { width: 100%; font-size: 1rem; }
+  button { width: 100%; font-size: 1.2rem; padding: 14px; margin-top: 12px; border: 0; border-radius: 10px;
+           background: #1e5aa8; color: #fff; }
+  button:disabled { background: #9aa7b8; }
+  progress { width: 100%; height: 22px; }
+  .file { margin-top: 12px; }
+  .name { font-weight: 600; word-break: break-all; }
+  .meta { font-size: .85rem; color: #555; }
+  .ok { color: #137333; } .err { color: #b3261e; }
+  #info { font-size: .85rem; color: #555; }
+</style>
+</head>
+<body>
+<h1>Upload box works</h1>
+<div id="info">Connecting…</div>
+
+<div class="card">
+  <input id="picker" type="file" multiple accept="video/*,image/*,*/*">
+  <button id="go" disabled>Upload</button>
+  <div class="file">
+    <div class="meta" id="totalText">Choose files to upload.</div>
+    <progress id="total" max="1" value="0"></progress>
+  </div>
+  <div id="list"></div>
+</div>
+
+<script>
+(function () {
+  var picker = document.getElementById('picker');
+  var go = document.getElementById('go');
+  var list = document.getElementById('list');
+  var total = document.getElementById('total');
+  var totalText = document.getElementById('totalText');
+  var info = document.getElementById('info');
+
+  function mb(b) { return (b / 1e6).toFixed(1) + ' MB'; }
+
+  function health() {
+    var x = new XMLHttpRequest();
+    x.open('GET', '/health');
+    x.onload = function () {
+      try {
+        var h = JSON.parse(x.responseText);
+        info.textContent = 'Box ' + (h.ip || location.hostname) + ':' + h.port +
+          ' · free ' + (h.freeBytes / 1e9).toFixed(1) + ' GB · ' + h.files + ' file(s) received';
+      } catch (e) { info.textContent = 'Health check failed'; }
+    };
+    x.onerror = function () { info.textContent = 'Box not reachable'; };
+    x.send();
+  }
+
+  picker.onchange = function () {
+    go.disabled = picker.files.length === 0;
+    var sum = 0;
+    for (var i = 0; i < picker.files.length; i++) sum += picker.files[i].size;
+    totalText.textContent = picker.files.length + ' file(s), ' + mb(sum);
+  };
+
+  function row(file) {
+    var d = document.createElement('div');
+    d.className = 'file';
+    var n = document.createElement('div'); n.className = 'name'; n.textContent = file.name;
+    var p = document.createElement('progress'); p.max = file.size || 1; p.value = 0;
+    var m = document.createElement('div'); m.className = 'meta'; m.textContent = 'waiting · ' + mb(file.size);
+    d.appendChild(n); d.appendChild(p); d.appendChild(m);
+    list.appendChild(d);
+    return { p: p, m: m };
+  }
+
+  go.onclick = function () {
+    var files = Array.prototype.slice.call(picker.files);
+    if (!files.length) return;
+    go.disabled = true; picker.disabled = true;
+    list.innerHTML = '';
+    var rows = files.map(row);
+    var grand = files.reduce(function (a, f) { return a + f.size; }, 0) || 1;
+    var doneBytes = 0, okCount = 0, t0 = Date.now();
+    total.max = grand; total.value = 0;
+
+    function next(i) {
+      if (i >= files.length) {
+        var s = (Date.now() - t0) / 1000;
+        totalText.textContent = okCount + '/' + files.length + ' uploaded, ' + mb(doneBytes) +
+          ' in ' + s.toFixed(1) + ' s (' + (doneBytes / 1e6 / Math.max(s, 0.001)).toFixed(1) + ' MB/s)';
+        go.disabled = false; picker.disabled = false;
+        health();
+        return;
+      }
+      var f = files[i], r = rows[i], start = Date.now();
+      var x = new XMLHttpRequest();
+      x.open('POST', '/upload?name=' + encodeURIComponent(f.name));
+      x.setRequestHeader('Content-Type', 'application/octet-stream');
+      x.upload.onprogress = function (e) {
+        r.p.value = e.loaded;
+        var s = (Date.now() - start) / 1000;
+        r.m.textContent = mb(e.loaded) + ' / ' + mb(f.size) + ' · ' + (e.loaded / 1e6 / Math.max(s, 0.001)).toFixed(1) + ' MB/s';
+        total.value = doneBytes + e.loaded;
+        totalText.textContent = 'File ' + (i + 1) + '/' + files.length + ' · ' + mb(doneBytes + e.loaded) + ' / ' + mb(grand);
+      };
+      x.onload = function () {
+        var s = (Date.now() - start) / 1000;
+        if (x.status === 200) {
+          okCount++;
+          r.p.value = r.p.max;
+          r.m.className = 'meta ok';
+          r.m.textContent = 'done · ' + mb(f.size) + ' in ' + s.toFixed(1) + ' s (' + (f.size / 1e6 / Math.max(s, 0.001)).toFixed(1) + ' MB/s)';
+        } else {
+          r.m.className = 'meta err';
+          var msg = x.responseText;
+          try { msg = JSON.parse(x.responseText).error; } catch (e) {}
+          r.m.textContent = 'failed (' + x.status + '): ' + msg;
+        }
+        doneBytes += f.size;
+        next(i + 1);
+      };
+      x.onerror = function () {
+        r.m.className = 'meta err';
+        r.m.textContent = 'network error (box stopped, out of range, or connection dropped)';
+        doneBytes += f.size;
+        next(i + 1);
+      };
+      x.send(f);
+    }
+    next(0);
+  };
+
+  health();
+})();
+</script>
+</body>
+</html>

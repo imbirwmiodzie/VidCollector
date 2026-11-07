@@ -1,0 +1,9 @@
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.Light.DarkActionBar">
+        <item name="android:colorPrimary">#1E5AA8</item>
+        <item name="android:colorPrimaryDark">#164580</item>
+        <item name="android:colorAccent">#1E5AA8</item>
+        <!-- Keep classic (non edge-to-edge) layout on Android 15/16 while targetSdk is 35. -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+    </style>
+</resources>

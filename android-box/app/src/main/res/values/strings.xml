@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">Upload Box</string>
+    <string name="notification_title">Upload box running</string>
+    <string name="channel_name">Upload box server</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="status_running">Server running on port 8080</string>
+    <string name="status_stopped">Server stopped</string>
+    <string name="no_address">No Wi-Fi or hotspot address. Turn on the hotspot or join a Wi-Fi network.</string>
+    <string name="no_files">No files yet.</string>
+    <string name="files_header">Received files</string>
+    <string name="battery_button">Battery optimization exemption</string>
+    <string name="app_settings_button">App settings (Samsung: Battery → Unrestricted)</string>
+    <string name="notifications_button">Allow notifications</string>
+    <string name="battery_ok">Battery optimization: exempt ✓</string>
+    <string name="battery_not_ok">Battery optimization: ON. Samsung may kill the server. Tap the button below.</string>
+    <string name="scan_hint">Scan with a phone on the same Wi-Fi / hotspot</string>
+</resources>
