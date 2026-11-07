@@ -58,6 +58,8 @@ class MainActivity : Activity() {
     private lateinit var files: TextView
     private lateinit var batteryStatus: TextView
     private lateinit var notifButton: Button
+    private lateinit var boxLog: TextView
+    private var shownLogVersion = -1
 
     private val handler = Handler(Looper.getMainLooper())
     private var shownUrl: String? = "\u0000" // force first render
@@ -110,6 +112,7 @@ class MainActivity : Activity() {
         files = findViewById(R.id.files)
         batteryStatus = findViewById(R.id.battery_status)
         notifButton = findViewById(R.id.notifications)
+        boxLog = findViewById(R.id.box_log)
 
         if (!BoxPrefs.ownWifiSupported) {
             modeOwn.isEnabled = false
@@ -191,6 +194,11 @@ class MainActivity : Activity() {
         samePanel.visibility = if (mode == BoxMode.OWN_WIFI) View.GONE else View.VISIBLE
 
         event.text = BoxState.lastEvent ?: ""
+        if (BoxLog.version != shownLogVersion) {
+            shownLogVersion = BoxLog.version
+            val lines = BoxLog.snapshot()
+            boxLog.text = if (lines.isEmpty()) getString(R.string.log_empty) else lines.joinToString("\n")
+        }
 
         val list = UploadBoxService.storageDir(this).listFiles()
             ?.filter { it.isFile && !it.name.startsWith(".") }

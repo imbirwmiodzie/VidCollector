@@ -17,9 +17,9 @@ HTTPS are later phases.
 | | |
 |---|---|
 | Package | `com.vidcollector.uploadbox` |
-| Version | `0.2.0` (versionCode 2) |
+| Version | `0.2.1` (versionCode 3) |
 | Min / target | Android 8.0 (API 26) / API 35. Own Wi-Fi mode needs Android 10 (API 29). |
-| Download | [`dist/upload-box.apk`](dist/upload-box.apk) or the GitHub Release `v0.2.0` |
+| Download | [`dist/upload-box.apk`](dist/upload-box.apk) or the latest GitHub Release |
 | Checksum | [`dist/upload-box.apk.sha256`](dist/upload-box.apk.sha256) |
 
 ## Install on a phone
@@ -63,9 +63,26 @@ APK (for example 0.2.0 over 0.1.0) installs over an older one without uninstalli
    name and URL.
 3. Each guest scans **1 · Join Wi-Fi** with the camera and taps **Join** or **Connect**. The box shows "Phone
    joined → now scan 2". The guest then scans **2 · Open page** and uploads.
-4. If the page doesn't load on a guest phone, that phone is probably sending traffic over mobile data because
-   the box Wi-Fi has no internet. Turn off its mobile data, or tap **Stay connected / Keep Wi-Fi** when
-   it says the network has no internet.
+4. **Before scanning, on each guest phone, turn off mobile data.** On Samsung, also go to Settings → Connections →
+   Wi-Fi → ⋮ → Intelligent Wi-Fi and turn off **Switch to mobile data**. The box Wi-Fi has no internet, so a phone with mobile
+   data may drop it again right away (a connect/disconnect loop) or send the page request over mobile data.
+   If the phone asks "No internet, stay connected?", choose to stay.
+
+### Troubleshooting own Wi-Fi: read the on-screen log
+The box screen has a **Log** (newest first) that records:
+- when the Wi-Fi is created, with its band;
+- each guest joining or leaving (`Guest joined (…a1b2), now 1`);
+- the first HTTP request from each guest IP (`Guest 192.168.49.x reached the box`);
+- uploads;
+- whether the box itself ever re-created the Wi-Fi.
+
+| Log pattern | Meaning |
+|---|---|
+| `Guest joined` → `Guest left` a few seconds later, repeating, **no `reached the box`**, no `Creating Wi-Fi` in between | The **guest** drops the network. Usually it has no internet and mobile data is on (see step 4). It can also mean the guest got no IP address. |
+| The same, but with `Wi-Fi disappeared … re-creating` / `Creating Wi-Fi` each time | The **box** lost or re-created its network. Report this with the log. |
+| `Guest 192.168.49.x reached the box` | The guest has an IP address and works. Any later problem is in the page or upload. |
+
+`adb logcat -s UploadBox` on the box shows the same lines.
 
 The name and password are stored and stay the same across restarts, so the two codes can be **printed**
 (a screenshot while stopped is enough). **New Wi-Fi name and password** (only while stopped) rotates them.
@@ -190,7 +207,7 @@ because NanoHTTPD doesn't send `100 Continue`.
 
 ## What is tested automatically
 
-`./gradlew testReleaseUnitTest` runs 41 tests:
+`./gradlew testReleaseUnitTest` runs 43 tests:
 
 - `WifiCredentialsTest`: generated names and passwords are valid for Android and WPA2 (500 samples, no ambiguous
   characters). The `WIFI:` QR payload format and escaping of `\ ; , : "` are checked.
@@ -201,6 +218,9 @@ because NanoHTTPD doesn't send `100 Continue`.
   - creates the group with the stored credentials on 5 GHz;
   - falls back to auto band when 5 GHz is refused;
   - the watchdog re-creates a dropped group and updates the client count;
+  - a single momentary "no group" answer from the system does **not** re-create the group, which would kick guests.
+    The test fails with the 0.2.0 behaviour;
+  - guests joining and leaving are written to the on-screen log;
   - repeated failures are reported and retried until they succeed;
   - a missing permission is explained, and the group starts once it's granted, without a restart;
   - a phone with no Wi-Fi Direct is reported;
@@ -235,7 +255,7 @@ ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 600 -c:v libx264 test-300m
 Or record a few minutes of something neutral.
 
 **A. Install (box = Samsung S20 FE)**
-- [ ] APK 0.2.0 downloads from the release page and installs over 0.1.0 (or fresh, with Play Protect "Install anyway").
+- [ ] APK 0.2.1 downloads from the release page and installs over 0.1.0 or 0.2.0 (or fresh, with Play Protect "Install anyway").
 - [ ] The app asks for notifications and Nearby devices. Allow both.
 - [ ] Battery optimization exemption is allowed, and App settings → Battery is set to **Unrestricted**.
 
@@ -244,6 +264,8 @@ Or record a few minutes of something neutral.
       Within about 5 s both codes are sharp, "Phones connected: 0 · __ GHz" shows, and the notification shows `DIRECT-UB-Box-…`.
 - [ ] **Android guest:** scan code 1 with the camera and tap Join. The box shows "Phone joined" and the count is 1.
 - [ ] Scan code 2. The page "Upload box works" opens. Note whether you had to turn mobile data off or tap "Stay connected": ______
+- [ ] If the guest loops (connect → disconnect): screenshot the box **Log**. Then repeat with the guest's mobile data
+      **off** and Intelligent Wi-Fi "Switch to mobile data" **off**. Does the loop stop? ______
 - [ ] **iPhone guest** (if available): the same two scans. Note any prompts.
 - [ ] Two guests at once: both join and the count is 2.
 

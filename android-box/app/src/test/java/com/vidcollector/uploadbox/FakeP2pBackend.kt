@@ -6,6 +6,8 @@ class FakeP2pBackend : P2pBackend {
     var fail5GHz = false
     var failAll = false
     var clients = 0
+    /** Answer "no group" to the next N requests although the group exists (system hiccup). */
+    var emptyAnswers = 0
     var group: GroupSnapshot? = null
     val calls = mutableListOf<String>()
 
@@ -23,13 +25,18 @@ class FakeP2pBackend : P2pBackend {
             result(false, 0)
             return
         }
-        group = GroupSnapshot(cred.ssid, cred.passphrase, "p2p-wlan0-0", true, 0, if (band5GHz) 5180 else 2437)
+        group = GroupSnapshot(cred.ssid, cred.passphrase, "p2p-wlan0-0", true, if (band5GHz) 5180 else 2437)
         result(true, 0)
     }
 
     override fun requestGroup(result: (GroupSnapshot?) -> Unit) {
         calls += "request"
-        result(group?.copy(clients = clients))
+        if (emptyAnswers > 0) {
+            emptyAnswers--
+            result(null)
+            return
+        }
+        result(group?.copy(clientIds = (1..clients).map { "aa:bb:cc:dd:ee:%02x".format(it) }))
     }
 
     override fun close() {

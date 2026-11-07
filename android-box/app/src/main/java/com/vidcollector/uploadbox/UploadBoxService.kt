@@ -43,6 +43,7 @@ class UploadBoxService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel(this)
+        BoxLog.sink = { Log.i(TAG, it) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -51,6 +52,7 @@ class UploadBoxService : Service() {
             return START_NOT_STICKY
         }
         BoxState.mode = BoxPrefs.mode(this)
+        if (server == null) BoxLog.add("Box started (${if (BoxState.mode == BoxMode.OWN_WIFI) "own Wi-Fi" else "existing Wi-Fi"} mode, v${appVersion()})")
         lastText = notificationText()
         goForeground()
         if (server == null) {
@@ -75,6 +77,9 @@ class UploadBoxService : Service() {
         return START_STICKY
     }
 
+    private fun appVersion(): String =
+        try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (_: Exception) { "?" }
+
     private fun goForeground() {
         val n = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -92,7 +97,14 @@ class UploadBoxService : Service() {
             indexHtml = { assets.open("index.html").use { it.readBytes() } },
             ipProvider = { currentIp() },
             events = object : UploadServer.Events {
+                private val seenIps = java.util.Collections.synchronizedSet(HashSet<String>())
+
+                override fun onRequest(remoteIp: String, method: String, path: String) {
+                    if (seenIps.add(remoteIp)) BoxLog.add("Guest $remoteIp reached the box ($method $path)")
+                }
+
                 override fun onUploadStarted(name: String, bytes: Long) {
+                    BoxLog.add("Upload started: $name (${formatBytes(bytes)})")
                     BoxState.lastEvent = "Receiving $name (${formatBytes(bytes)})"
                     Log.i(TAG, "upload start $name $bytes")
                 }
@@ -102,11 +114,13 @@ class UploadBoxService : Service() {
                     BoxState.lastEvent = String.format(Locale.US, "Received %s: %s in %.1f s (%.1f MB/s)",
                         file.name, formatBytes(bytes), millis / 1000.0, mbps)
                     Log.i(TAG, "upload done ${file.name} $bytes B ${millis}ms sha256=$sha256")
+                    BoxLog.add(String.format(Locale.US, "Upload done: %s, %.1f MB/s", file.name, mbps))
                 }
 
                 override fun onUploadFailed(name: String, reason: String) {
                     BoxState.lastEvent = "Upload of $name failed: $reason"
                     Log.w(TAG, "upload failed $name: $reason")
+                    BoxLog.add("Upload failed: $name: $reason")
                 }
             },
         )

@@ -16,7 +16,9 @@
     <string name="clients_connected">Phones connected: %1$d</string>
     <string name="joined_hint">Phone joined → now scan 2 · Open page</string>
     <string name="own_wifi_stopped">Press Start to switch this Wi-Fi on. The name and password stay the same, so these codes can be printed.</string>
-    <string name="own_wifi_tip">Page not loading on a guest phone? Turn off its mobile data, or tap “Stay connected” / “Keep Wi-Fi” when it says the network has no internet.</string>
+    <string name="own_wifi_tip">Guest phone keeps disconnecting or the page does not load? This Wi-Fi has no internet, so the phone may drop it. On the guest phone, before scanning: turn off mobile data. Samsung: also Settings → Connections → Wi-Fi → ⋮ → Intelligent Wi-Fi → turn off “Switch to mobile data”. If asked “No internet, stay connected?”, choose to stay.</string>
+    <string name="log_header">Log (screenshot this if something fails)</string>
+    <string name="log_empty">No events yet.</string>
     <string name="new_password">New Wi-Fi name and password</string>
     <string name="no_address">No Wi-Fi or hotspot address. Turn on the hotspot or join a Wi-Fi network.</string>
     <string name="no_files">No files yet.</string>

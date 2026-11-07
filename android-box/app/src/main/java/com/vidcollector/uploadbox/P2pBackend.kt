@@ -14,9 +14,12 @@ data class GroupSnapshot(
     val passphrase: String,
     val iface: String?,
     val isOwner: Boolean,
-    val clients: Int,
     val frequencyMhz: Int,
-)
+    /** MAC addresses of joined guests (as reported by the system). */
+    val clientIds: List<String> = emptyList(),
+) {
+    val clients: Int get() = clientIds.size
+}
 
 /**
  * The few Wi-Fi Direct calls the box needs. Callbacks arrive on the main thread.
@@ -87,8 +90,8 @@ class SystemP2pBackend(private val ctx: Context, private val onChannelLost: () -
                     passphrase = it.passphrase ?: "",
                     iface = it.`interface`,
                     isOwner = it.isGroupOwner,
-                    clients = it.clientList?.size ?: 0,
                     frequencyMhz = it.frequency,
+                    clientIds = it.clientList?.map { d -> d.deviceAddress ?: "?" }?.sorted() ?: emptyList(),
                 )
             })
         }

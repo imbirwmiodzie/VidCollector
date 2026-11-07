@@ -72,13 +72,49 @@ class WifiDirectGroupTest {
         idle(3)
         assertEquals(1, fake.creates())
         fake.group = null // e.g. the user toggled Wi-Fi
-        idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 2)
+        idle(3 * WifiDirectGroup.WATCHDOG_MS / 1000 + 2)
         assertEquals(2, fake.creates())
+        assertTrue(BoxLog.snapshot().any { it.contains("Wi-Fi disappeared") })
         assertNotNull(BoxState.group)
 
         fake.clients = 2
         idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 1)
         assertEquals(2, BoxState.group!!.clients)
+    }
+
+    @Test fun singleEmptyAnswerDoesNotKickGuests() {
+        grant()
+        group.start()
+        idle(3)
+        fake.clients = 1
+        idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 1)
+        assertEquals(1, BoxState.group!!.clients)
+        val removesBefore = fake.calls.count { it == "remove" }
+
+        fake.emptyAnswers = 1 // the system briefly reports "no group" while a guest joins
+        group.refresh()
+        idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 1)
+        assertEquals("no re-create", 1, fake.creates())
+        assertEquals("group never removed", removesBefore, fake.calls.count { it == "remove" })
+        assertNotNull(BoxState.group)
+        assertEquals(1, BoxState.group!!.clients)
+    }
+
+    @Test fun guestJoinAndLeaveAreLogged() {
+        grant()
+        BoxLog.clear()
+        group.start()
+        idle(3)
+        fake.clients = 2
+        idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 1)
+        fake.clients = 1
+        idle(WifiDirectGroup.WATCHDOG_MS / 1000 + 1)
+        val log = BoxLog.snapshot().joinToString("\n")
+        assertTrue(log, log.contains("Wi-Fi up: DIRECT-UB-Box-"))
+        assertTrue(log, log.contains("5 GHz (5180 MHz), box at 192.168.49.1"))
+        assertTrue(log, log.contains("Guest joined (…ee01), now 2"))
+        assertTrue(log, log.contains("Guest joined (…ee02), now 2"))
+        assertTrue(log, log.contains("Guest left (…ee02), now 1"))
     }
 
     @Test fun persistentFailureIsReportedAndRetried() {

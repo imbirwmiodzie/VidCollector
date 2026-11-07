@@ -18,9 +18,16 @@ class UploadServerTest {
     private lateinit var server: UploadServer
     private val port get() = server.serverPort
 
+    private val requests = java.util.Collections.synchronizedList(ArrayList<String>())
+
     @Before fun setUp() {
         dir = tmp.newFolder("uploads")
-        server = UploadServer(0, dir, { "<h1>Upload box works</h1>".toByteArray() }, { "192.168.43.1" })
+        server = UploadServer(0, dir, { "<h1>Upload box works</h1>".toByteArray() }, { "192.168.43.1" },
+            object : UploadServer.Events {
+                override fun onRequest(remoteIp: String, method: String, path: String) {
+                    requests.add("$remoteIp $method $path")
+                }
+            })
         server.startServer()
     }
 
@@ -30,6 +37,7 @@ class UploadServerTest {
         val r = HttpTestClient.get(port, "/")
         assertEquals(200, r.code)
         assertTrue(r.body.contains("Upload box works"))
+        assertEquals(listOf("127.0.0.1 GET /"), requests.toList())
     }
 
     @Test fun healthJson() {

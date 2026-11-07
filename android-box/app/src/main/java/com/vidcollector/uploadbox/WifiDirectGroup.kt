@@ -33,7 +33,7 @@ class WifiDirectGroup(
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private val backend: P2pBackend = backend ?: SystemP2pBackend(ctx) {
-        Log.w(TAG, "Wi-Fi Direct channel lost")
+        BoxLog.add("Wi-Fi Direct channel lost (system restarted it?)")
         if (wanted) handler.postDelayed({ refresh() }, 2000)
     }
     private var wanted = false
@@ -41,14 +41,20 @@ class WifiDirectGroup(
     private var useAutoBand = false
     private var failures = 0
     private var receiverRegistered = false
+    /** Consecutive group checks that found no group (see [refresh]). */
+    private var misses = 0
+    private var lastSeenGroupAt = 0L
+    private var knownClients: Set<String> = emptySet()
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             when (intent?.action) {
                 WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
                     val st = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
-                    if (st == WifiP2pManager.WIFI_P2P_STATE_DISABLED) publish(null, MSG_WIFI_OFF)
-                    else if (st == WifiP2pManager.WIFI_P2P_STATE_ENABLED) handler.postDelayed({ refresh() }, 500)
+                    if (st == WifiP2pManager.WIFI_P2P_STATE_DISABLED) {
+                        BoxLog.add("Wi-Fi Direct switched off by the system (Wi-Fi off?)")
+                        publish(null, MSG_WIFI_OFF)
+                    } else if (st == WifiP2pManager.WIFI_P2P_STATE_ENABLED) handler.postDelayed({ refresh() }, 500)
                 }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> refresh()
             }
@@ -66,6 +72,8 @@ class WifiDirectGroup(
         if (wanted) return
         wanted = true
         failures = 0
+        misses = 0
+        knownClients = emptySet()
         useAutoBand = false
         if (!backend.isAvailable()) {
             publish(null, "This phone has no Wi-Fi Direct. Use \"Existing Wi-Fi or hotspot\" mode.")
@@ -93,6 +101,7 @@ class WifiDirectGroup(
             receiverRegistered = false
         }
         try { backend.close() } catch (_: Exception) {}
+        if (BoxState.group != null) BoxLog.add("Wi-Fi removed (box stopped)")
         BoxState.group = null
         BoxState.groupStatus = null
     }
@@ -111,18 +120,20 @@ class WifiDirectGroup(
         if (!wanted) { creating = false; return }
         val cred = BoxPrefs.credentials(ctx)
         val band5 = !useAutoBand
-        Log.i(TAG, "createGroup ${cred.ssid} band=${if (band5) "5GHz" else "auto"}")
+        BoxLog.add("Creating Wi-Fi ${cred.ssid} (${if (band5) "5 GHz" else "any band"})")
         guarded {
             backend.createGroup(cred, band5) { ok, reason ->
                 creating = false
                 if (ok) {
                     failures = 0
+                    misses = 0
+                    lastSeenGroupAt = now()
                     handler.postDelayed({ refresh() }, 500)
                     handler.postDelayed({ refresh() }, 2000)
                     return@createGroup
                 }
                 failures++
-                Log.w(TAG, "createGroup failed reason=$reason (${reasonText(reason)})")
+                BoxLog.add("Create failed: ${reasonText(reason)}")
                 if (band5) {
                     useAutoBand = true // no 5 GHz group on this phone/country: let the system choose
                     handler.postDelayed({ recreate() }, 300)
@@ -142,19 +153,41 @@ class WifiDirectGroup(
             backend.requestGroup { g ->
                 if (!wanted) return@requestGroup
                 if (g == null || !g.isOwner) {
-                    if (!creating) {
-                        if (failures == 0) publish(null, MSG_CREATING)
-                        recreate()
+                    if (creating) return@requestGroup
+                    // Never tear down on a single empty answer: right after a guest joins the
+                    // system can briefly report no group, and re-creating would kick the guest.
+                    misses++
+                    val hadGroup = BoxState.group != null
+                    if (hadGroup && (misses < MISSES_BEFORE_RECREATE || now() - lastSeenGroupAt < GRACE_MS)) {
+                        return@requestGroup
                     }
+                    if (hadGroup) BoxLog.add("Wi-Fi disappeared (system removed it) → re-creating")
+                    if (failures == 0) publish(null, MSG_CREATING)
+                    recreate()
                     return@requestGroup
                 }
+                misses = 0
+                lastSeenGroupAt = now()
+                logClientChanges(g.clientIds)
                 val ip = IpPicker.pickForWifiDirect(IpPicker.fromSystem(), g.iface) ?: IpPicker.WIFI_DIRECT_DEFAULT_IP
                 val info = GroupInfo(g.ssid, g.passphrase, g.iface, ip, g.clients, g.frequencyMhz)
-                if (info != BoxState.group) Log.i(TAG, "group $info")
+                if (BoxState.group == null) {
+                    BoxLog.add("Wi-Fi up: ${g.ssid}, ${info.band.ifEmpty { "? GHz" }}" +
+                        (if (g.frequencyMhz > 0) " (${g.frequencyMhz} MHz)" else "") + ", box at $ip")
+                }
                 publish(info, null)
             }
         }
     }
+
+    private fun logClientChanges(ids: List<String>) {
+        val now = ids.toSet()
+        for (id in now - knownClients) BoxLog.add("Guest joined (…${shortId(id)}), now ${now.size}")
+        for (id in knownClients - now) BoxLog.add("Guest left (…${shortId(id)}), now ${now.size}")
+        knownClients = now
+    }
+
+    private fun now() = android.os.SystemClock.elapsedRealtime()
 
     private inline fun guarded(block: () -> Unit) {
         try {
@@ -162,6 +195,7 @@ class WifiDirectGroup(
         } catch (e: Exception) {
             creating = false
             Log.w(TAG, "Wi-Fi Direct call failed", e)
+            BoxLog.add("Wi-Fi Direct call failed: ${e.message}")
             publish(null, "Wi-Fi Direct error: ${e.message}. Retrying…")
         }
     }
@@ -190,6 +224,12 @@ class WifiDirectGroup(
     companion object {
         private const val TAG = "UploadBox"
         const val WATCHDOG_MS = 4_000L
+        /** Empty group checks in a row needed before we assume the group is really gone. */
+        const val MISSES_BEFORE_RECREATE = 2
+        /** ...and at least this long since the group was last seen. */
+        const val GRACE_MS = 6_000L
+
+        fun shortId(mac: String) = mac.replace(":", "").takeLast(4)
         const val MSG_CREATING = "Creating Wi-Fi…"
         const val MSG_WIFI_OFF = "Wi-Fi is off. Turn Wi-Fi on (no need to connect to a network)."
 

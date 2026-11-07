@@ -36,6 +36,8 @@ class UploadServer(
         fun onUploadStarted(name: String, bytes: Long) {}
         fun onUploadFinished(file: File, bytes: Long, millis: Long, sha256: String) {}
         fun onUploadFailed(name: String, reason: String) {}
+        /** Every request; lets the app log the first request from each guest address. */
+        fun onRequest(remoteIp: String, method: String, path: String) {}
     }
 
     private val uploading = AtomicInteger(0)
@@ -53,6 +55,7 @@ class UploadServer(
 
     override fun serve(session: IHTTPSession): Response {
         val path = session.uri.substringBefore('?').trimEnd('/').ifEmpty { "/" }
+        try { events?.onRequest(session.remoteIpAddress ?: "?", session.method.name, path) } catch (_: Exception) {}
         return try {
             when {
                 session.method == Method.GET && (path == "/" || path == "/index.html") -> htmlResponse()
