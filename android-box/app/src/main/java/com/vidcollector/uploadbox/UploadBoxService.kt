@@ -28,15 +28,12 @@ class UploadBoxService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var lastUrl: String? = null
+    private var lastText: String? = null
+    private var wifiDirect: WifiDirectGroup? = null
 
     private val ipPoll = object : Runnable {
         override fun run() {
-            val url = currentUrl()
-            if (url != lastUrl) {
-                lastUrl = url
-                updateNotification()
-            }
+            updateNotificationIfChanged()
             handler.postDelayed(this, IP_POLL_MS)
         }
     }
@@ -53,7 +50,8 @@ class UploadBoxService : Service() {
             stopEverything()
             return START_NOT_STICKY
         }
-        lastUrl = currentUrl()
+        BoxState.mode = BoxPrefs.mode(this)
+        lastText = notificationText()
         goForeground()
         if (server == null) {
             try {
@@ -65,6 +63,12 @@ class UploadBoxService : Service() {
                 return START_NOT_STICKY
             }
             acquireLocks()
+            if (BoxState.mode == BoxMode.OWN_WIFI && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                wifiDirect = WifiDirectGroup(this, WifiDirectGroup.backendFactoryForTests?.invoke(this)) {
+                    handler.post { updateNotificationIfChanged() }
+                }
+                    .also { it.start() }
+            }
             handler.removeCallbacks(ipPoll)
             handler.postDelayed(ipPoll, IP_POLL_MS)
         }
@@ -86,7 +90,7 @@ class UploadBoxService : Service() {
             port = port,
             storageDir = dir,
             indexHtml = { assets.open("index.html").use { it.readBytes() } },
-            ipProvider = { IpPicker.pick(IpPicker.fromSystem())?.address },
+            ipProvider = { currentIp() },
             events = object : UploadServer.Events {
                 override fun onUploadStarted(name: String, bytes: Long) {
                     BoxState.lastEvent = "Receiving $name (${formatBytes(bytes)})"
@@ -140,6 +144,8 @@ class UploadBoxService : Service() {
 
     private fun stopEverything() {
         handler.removeCallbacks(ipPoll)
+        wifiDirect?.stop()
+        wifiDirect = null
         server?.stop()
         server = null
         releaseLocks()
@@ -158,6 +164,8 @@ class UploadBoxService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacks(ipPoll)
+        wifiDirect?.stop()
+        wifiDirect = null
         server?.stop()
         server = null
         releaseLocks()
@@ -166,9 +174,18 @@ class UploadBoxService : Service() {
         super.onDestroy()
     }
 
-    private fun currentUrl(): String? = IpPicker.pick(IpPicker.fromSystem())?.let { IpPicker.url(it.address, port) }
+    private fun notificationText(): String {
+        val url = currentIp()?.let { IpPicker.url(it, port) }
+        return if (BoxState.mode == BoxMode.OWN_WIFI) {
+            val g = BoxState.group
+            if (g != null && url != null) "Wi-Fi ${g.ssid} · $url" else BoxState.groupStatus ?: "Creating Wi-Fi…"
+        } else url ?: getString(R.string.no_address)
+    }
 
-    private fun updateNotification() {
+    private fun updateNotificationIfChanged() {
+        val text = notificationText()
+        if (text == lastText) return
+        lastText = text
         val nm = getSystemService(NotificationManager::class.java)
         try { nm.notify(NOTIFICATION_ID, buildNotification()) } catch (_: SecurityException) {}
     }
@@ -182,7 +199,7 @@ class UploadBoxService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(lastUrl ?: getString(R.string.no_address))
+            .setContentText(lastText ?: getString(R.string.no_address))
             .setSmallIcon(R.drawable.ic_stat_box)
             .setOngoing(true)
             .setContentIntent(open)
@@ -200,6 +217,11 @@ class UploadBoxService : Service() {
 
         /** Port 8080: ports below 1024 need root on Android. Mutable only for tests. */
         @Volatile var port: Int = UploadServer.DEFAULT_PORT
+
+        /** Address guests use: the Wi-Fi Direct group IP in OWN_WIFI mode, else the best LAN IP. */
+        fun currentIp(): String? =
+            if (BoxState.mode == BoxMode.OWN_WIFI) BoxState.group?.ip
+            else IpPicker.pick(IpPicker.fromSystem())?.address
 
         fun storageDir(ctx: Context): File =
             File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "uploads").apply { mkdirs() }

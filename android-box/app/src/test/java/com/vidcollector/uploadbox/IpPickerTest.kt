@@ -88,4 +88,17 @@ class IpPickerTest {
     @Test fun fromSystemDoesNotThrow() {
         IpPicker.fromSystem() // whatever the host has; must not crash
     }
+
+    @Test fun wifiDirectAddressPrefersGroupInterface() {
+        val addrs = listOf(a("wlan0", "192.168.1.20"), a("p2p-wlan0-0", "192.168.49.1"), a("rmnet0", "10.0.0.1"))
+        assertEquals("192.168.49.1", IpPicker.pickForWifiDirect(addrs, "p2p-wlan0-0"))
+        // group interface unknown: the standard Wi-Fi Direct subnet wins
+        assertEquals("192.168.49.1", IpPicker.pickForWifiDirect(addrs, null))
+        // a vendor using another subnet on the group interface
+        assertEquals("192.168.137.1", IpPicker.pickForWifiDirect(
+            listOf(a("wlan0", "192.168.1.20"), a("p2p0", "192.168.137.1")), "p2p0"))
+        assertEquals("192.168.137.1", IpPicker.pickForWifiDirect(
+            listOf(a("wlan0", "192.168.1.20"), a("p2p0", "192.168.137.1")), null))
+        assertNull(IpPicker.pickForWifiDirect(listOf(a("wlan0", "192.168.1.20")), "p2p-wlan0-0"))
+    }
 }

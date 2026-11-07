@@ -1,28 +1,33 @@
 # Upload Box (Android PoC)
 
-Turns an Android phone into a local "upload box". The app runs an HTTP server on
-port **8080** inside a foreground service and shows its own URL as large text and as a
-QR code. Other phones on the same Wi-Fi (a router, or this phone's own hotspot) scan
-the code and upload videos from the browser. Files are streamed straight to app storage.
+Turns an Android phone into a local "upload box" that other phones upload videos to from their browser.
+No internet, router or computer is needed.
 
-This is a validation PoC. It checks that the APK, server, QR code and LAN access work.
-Resumable (tus) uploads, the tap game, the log collector, video metadata, microSD and
+- **Own Wi-Fi mode** (default, Android 10+): the box creates **its own Wi-Fi network** (a Wi-Fi Direct
+  group with a name and password the app chooses). The screen shows two QR codes:
+  **1 · Join Wi-Fi** (the phone camera offers "Join network", no typing) and **2 · Open page**
+  (`http://192.168.49.1:8080/`). When a phone joins, the box highlights code 2.
+- **Existing Wi-Fi or hotspot mode**: everyone is already on the same router or on the box phone's regular
+  hotspot. The screen shows one QR code with the box URL.
+
+The server runs in a foreground service on port **8080** and streams uploads straight to app storage.
+This is a validation PoC. Resumable (tus) uploads, the tap game, the log collector, video metadata, microSD and
 HTTPS are later phases.
 
 | | |
 |---|---|
 | Package | `com.vidcollector.uploadbox` |
-| Version | `0.1.0` (versionCode 1) |
-| Min / target | Android 8.0 (API 26) / API 35 |
-| Download | [`dist/upload-box.apk`](dist/upload-box.apk) or the GitHub Release `v0.1.0` |
+| Version | `0.2.0` (versionCode 2) |
+| Min / target | Android 8.0 (API 26) / API 35. Own Wi-Fi mode needs Android 10 (API 29). |
+| Download | [`dist/upload-box.apk`](dist/upload-box.apk) or the GitHub Release `v0.2.0` |
 | Checksum | [`dist/upload-box.apk.sha256`](dist/upload-box.apk.sha256) |
 
 ## Install on a phone
 
 **Sideload (no computer):**
 
-1. On the phone, open the release page
-   `https://github.com/imbirwmiodzie/VidCollector/releases/tag/v0.1.0`
+1. On the phone, open
+   `https://github.com/imbirwmiodzie/VidCollector/releases/latest`
    and tap `upload-box.apk`. You can also open the file `android-box/dist/upload-box.apk` in the repository and tap **Download raw file**.
 2. Open the downloaded file. Android asks you to allow **Install unknown apps** for
    the browser (Chrome or Samsung Internet). Allow it, go back and tap **Install**.
@@ -37,32 +42,51 @@ adb install -r android-box/dist/upload-box.apk
 ```
 
 All builds are signed with the same PoC key (`keystore/upload-box-poc.jks`), so a newer
-APK installs over an older one without uninstalling.
+APK (for example 0.2.0 over 0.1.0) installs over an older one without uninstalling.
 
-## One-time toggles on the server phone
+## One-time toggles on the box phone
 
-1. **Notifications**: allow them when the app asks (Android 13+). Without them the
-   service still runs, but the "Upload box running" notification is hidden. If you
-   denied it, use the **Allow notifications** button.
+1. **Permissions**: when the app asks, allow **notifications** (Android 13+) and **Nearby devices**
+   (Android 13+). Android 10–12 asks for **Location** instead and needs Location switched on. Both are needed only for
+   own Wi-Fi mode. If you denied them, use the **Allow notifications / nearby devices** button.
 2. **Battery**: tap **Battery optimization exemption → Allow**. On Samsung, also tap
    **App settings → Battery → Unrestricted**. Otherwise One UI may kill the server
    when the screen is off.
 3. **Play Protect**: "Install anyway" (see above). This only appears the first time.
 
-## Use
+## Use: own Wi-Fi (default)
 
-1. Turn on the hotspot (Settings → Connections → Mobile Hotspot), or join a Wi-Fi network.
-   The app cannot switch the hotspot on for you.
-2. Open **Upload Box** and tap **Start**. The URL `http://<ip>:8080/` and its QR code appear.
-   The notification "Upload box running" shows the same URL and a **Stop** action.
-3. On another phone on the same network, scan the QR code with the camera, then
-   **Choose files → Upload**. The page shows per-file and total progress and MB/s.
-4. Files land in `Android/data/com.vidcollector.uploadbox/files/uploads/` on the server
-   phone and appear in the app's **Received files** list.
+1. On the box phone, switch **Wi-Fi on**. It doesn't have to connect to any network. Turn the **regular hotspot off**,
+   because many phones can't run both.
+2. Open **Upload Box**, keep **Own Wi-Fi** selected and tap **Start**. Within a few seconds the
+   network `DIRECT-UB-Box-XXXX` is up and both QR codes become sharp. The notification shows the network
+   name and URL.
+3. Each guest scans **1 · Join Wi-Fi** with the camera and taps **Join** or **Connect**. The box shows "Phone
+   joined → now scan 2". The guest then scans **2 · Open page** and uploads.
+4. If the page doesn't load on a guest phone, that phone is probably sending traffic over mobile data because
+   the box Wi-Fi has no internet. Turn off its mobile data, or tap **Stay connected / Keep Wi-Fi** when
+   it says the network has no internet.
 
-The hotspot address changes every time the hotspot starts (Android 11+). The app
-re-reads the address every 2 s while it's open, on every network callback and on the
-hotspot on/off broadcast, and updates the URL and QR code. The notification refreshes every 5 s.
+The name and password are stored and stay the same across restarts, so the two codes can be **printed**
+(a screenshot while stopped is enough). **New Wi-Fi name and password** (only while stopped) rotates them.
+The box asks Android for a 5 GHz network and falls back to any band if the phone refuses. The band in use
+is shown next to "Phones connected".
+
+Why not an automatic redirect after joining? That would need a captive portal, meaning the box answers DNS
+and controls DHCP. A non-rooted app can't do that (port 53 and the DHCP server belong to the system),
+so the second QR code takes its place.
+
+## Use: existing Wi-Fi or hotspot
+
+1. Turn on the regular hotspot (Settings → Connections → Mobile Hotspot), or join a Wi-Fi router.
+2. Select **Existing Wi-Fi or hotspot** and tap **Start**. The URL `http://<ip>:8080/` and its QR code appear.
+3. Guests on the same network scan it and upload.
+
+The hotspot address changes every time the hotspot starts (Android 11+). The app re-reads it every second
+while it's open, on network callbacks and on hotspot on/off, and updates the QR code.
+
+Files from both modes land in `Android/data/com.vidcollector.uploadbox/files/uploads/` and appear in
+**Received files**.
 
 ## Build
 
@@ -88,6 +112,9 @@ cp app/build/outputs/apk/release/app-release.apk dist/upload-box.apk
 (cd dist && sha256sum upload-box.apk > upload-box.apk.sha256)
 ```
 
+Pushing a changed `dist/` triggers `.github/workflows/android-box-release.yml`, which publishes Release
+`v<versionName>`.
+
 ## HTTP API
 
 | Method | Path | Result |
@@ -111,7 +138,7 @@ Upload rules:
 From a computer, for example:
 
 ```bash
-curl -H 'Expect:' -T video.mp4 "http://192.168.43.1:8080/upload?name=video.mp4"
+curl -H 'Expect:' -T video.mp4 "http://192.168.49.1:8080/upload?name=video.mp4"
 ```
 
 `-T` streams from disk, while `--data-binary @file` loads the whole file into RAM. `Expect:` avoids a 1 s wait,
@@ -121,6 +148,17 @@ because NanoHTTPD doesn't send `100 Continue`.
 
 ## Design notes
 
+- **Own Wi-Fi = Wi-Fi Direct group, not a hotspot.** Android has no public API for an app to
+  switch on the regular hotspot. `LocalOnlyHotspot` exists, but the system picks a random name and password
+  on every start and decides the band. A Wi-Fi Direct group created with
+  `WifiP2pConfig.Builder` (Android 10+) gets **our** name and password (so the codes can be printed) and asks for **5 GHz**.
+  Its address is always the group owner address `192.168.49.1`. Regular phones and iPhones join it as an
+  ordinary WPA2 network. Code:
+  - `WifiDirectGroup.kt`: create, the 5 GHz → auto-band fallback, a watchdog every 4 s that re-creates the group if
+    the system dropped it, and the client count.
+  - `P2pBackend.kt`: the system calls, behind an interface so the logic is unit-tested with a fake.
+  - `WifiCredentials.kt`: the name/password rules (`DIRECT-xy…`, ≤ 32 bytes; WPA2 8–63 chars, no
+    ambiguous characters) and the `WIFI:T:WPA;S:…;P:…;;` QR payload with escaping.
 - **HTTP server: NanoHTTPD 2.3.1 rather than Ktor CIO.** NanoHTTPD is a single ~100 KB
   Java jar with no transitive dependencies. Ktor CIO pulls in kotlinx-coroutines,
   ktor-io/http/utils, kotlinx-io and slf4j (several MB, plus R8 rules), and its benefits
@@ -132,16 +170,15 @@ because NanoHTTPD doesn't send `100 Continue`.
   The server class (`UploadServer.kt`) has no Android imports and could be moved to Ktor later.
 - **Foreground service type `dataSync`** with a partial wake lock (the CPU keeps running with the screen
   off) and a Wi-Fi lock (`FULL_HIGH_PERF` on Android ≤ 13, `FULL_LOW_LATENCY` on 14+).
-  The lock matters when the phone is a Wi-Fi client of a router; it does nothing in hotspot mode.
+  The service also owns the Wi-Fi Direct group, so the network lives exactly as long as the server.
   **Android 15+ limits `dataSync` services to 6 h per 24 h.** When the limit hits, the
   app stops cleanly and shows a message, and you press Start again. If that becomes a
   problem, switch to `specialUse` (fine for sideloading).
-- **IP selection (`IpPicker.kt`):** private IPv4 only (10/8, 172.16/12, 192.168/16), on these interfaces in order:
+- **IP selection (existing Wi-Fi mode, `IpPicker.kt`):** private IPv4 only (10/8, 172.16/12, 192.168/16), on these interfaces in order:
   hotspot `ap*` / `swlan*` → `wlan*` → other LAN (`eth*`, `rndis*`, `p2p*` …). Cellular (`rmnet*`,
-  `ccmni*`, `v4-*`), VPN (`tun*`, `ppp*`), loopback and dummy interfaces are never used. If the phone
-  is on a router and running a hotspot at the same time, the hotspot wins. The other candidates are
-  shown in small text under the QR code.
-- **UI:** plain `Activity` and Views. There is no AppCompat or Compose, so the APK is ~0.9 MB. The QR code is
+  `ccmni*`, `v4-*`), VPN (`tun*`, `ppp*`), loopback and dummy interfaces are never used. In own Wi-Fi mode
+  the address comes from the group's interface, falling back to `192.168.49.1`.
+- **UI:** plain `Activity` and Views. There is no AppCompat or Compose, so the APK is ~0.9 MB. The QR codes are
   generated on the device with ZXing core.
 - **Signing:** `keystore/upload-box-poc.jks` (password `uploadbox-poc`, alias `uploadbox`)
   is committed **on purpose** so every build has the same signature. It's a test key, not a
@@ -153,22 +190,39 @@ because NanoHTTPD doesn't send `100 Continue`.
 
 ## What is tested automatically
 
-`./gradlew testReleaseUnitTest` runs:
+`./gradlew testReleaseUnitTest` runs 41 tests:
 
+- `WifiCredentialsTest`: generated names and passwords are valid for Android and WPA2 (500 samples, no ambiguous
+  characters). The `WIFI:` QR payload format and escaping of `\ ; , : "` are checked.
 - `IpPickerTest`: private-range detection, Samsung `swlan0` hotspot vs. cellular,
-  hotspot vs. router Wi-Fi, Pixel-style `wlan1` hotspot, VPN, cellular and CGNAT exclusion, ordering.
+  hotspot vs. router Wi-Fi, Pixel-style `wlan1` hotspot, VPN, cellular and CGNAT exclusion, ordering, and
+  the Wi-Fi Direct address taken from the group interface or from 192.168.49.0/24.
+- `WifiDirectGroupTest` (Robolectric, fake Wi-Fi Direct backend):
+  - creates the group with the stored credentials on 5 GHz;
+  - falls back to auto band when 5 GHz is refused;
+  - the watchdog re-creates a dropped group and updates the client count;
+  - repeated failures are reported and retried until they succeed;
+  - a missing permission is explained, and the group starts once it's granted, without a restart;
+  - a phone with no Wi-Fi Direct is reported;
+  - Stop removes the group and leaves no activity behind.
 - `UploadServerTest` (plain JVM over real loopback sockets): `/`, `/health`, `/files`, a
-  **64 MB streamed upload with a SHA-256 comparison** (server reply and the file on disk), duplicate
-  names, path traversal, an empty file, a truncated upload leaving no file, `411`, `507`, `404`/`405`.
-- `UploadBoxServiceTest` (Robolectric, Android 15 framework): starts the **real
-  foreground service**. It checks the notification title "Upload box running", the wake lock
-  being held, `GET /health`, and `GET /` served from assets. It does a **50 MB POST with a SHA-256 comparison**
-  of the file in `getExternalFilesDir`, then checks that the Stop action releases the locks.
-- `MainActivityTest` (Robolectric, native graphics): the main screen shows the `swlan0` URL. The
-  QR bitmap is **decoded with ZXing and equals the URL**. When the hotspot address changes, the URL and QR
-  code update within one refresh. With only cellular available, the screen shows the "No Wi-Fi" hint and no QR code.
+  **64 MB streamed upload with a SHA-256 comparison**, duplicate names, path traversal, an empty file, a truncated
+  upload leaving no file, `411`, `507`, `404`/`405`.
+- `UploadBoxServiceTest` (Robolectric, Android 15 framework), two tests:
+  - **Existing Wi-Fi mode** starts the real foreground service. It checks the notification, the wake lock,
+    `/health`, the page from assets, a **50 MB POST with a SHA-256 comparison**, and that Stop releases the locks.
+  - **Own Wi-Fi mode** checks that the group is created, `/health` reports `192.168.49.1`, the notification shows the
+    network name and URL, and Stop removes the group.
+- `MainActivityTest` (Robolectric, native graphics), two tests:
+  - **Own Wi-Fi mode**: QR 1 **decodes to the exact `WIFI:` string** (with escaping) and QR 2 to the URL. The band and the client
+    count are shown. A guest joining shows "Phone joined → now scan 2", which fades after 30 s. Problems
+    (Wi-Fi off) show in the status line.
+  - **Existing Wi-Fi mode**: the URL and QR code follow hotspot address changes, and the "No Wi-Fi" hint shows when there is no address.
 
 CI (`.github/workflows/android-box.yml`) builds the APK and runs these tests on every push.
+
+**Not testable here:** a real Wi-Fi Direct radio. No emulator can run in the build container, and emulators don't
+support Wi-Fi Direct anyway. Everything about the radio is in the manual checklist below.
 
 ## Manual test checklist (real phones)
 
@@ -180,35 +234,43 @@ ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=30 -t 600 -c:v libx264 test-300m
 
 Or record a few minutes of something neutral.
 
-**A. Install and start (server = Samsung S20 FE)**
-- [ ] APK downloads from the release page and installs (Install unknown apps, Play Protect "Install anyway").
-- [ ] The app opens and asks for notifications. Allow it.
+**A. Install (box = Samsung S20 FE)**
+- [ ] APK 0.2.0 downloads from the release page and installs over 0.1.0 (or fresh, with Play Protect "Install anyway").
+- [ ] The app asks for notifications and Nearby devices. Allow both.
 - [ ] Battery optimization exemption is allowed, and App settings → Battery is set to **Unrestricted**.
-- [ ] Turn the **hotspot** on, open the app and tap **Start**. The notification "Upload box running" appears.
-- [ ] The URL shows the **hotspot IP** (Settings → Mobile Hotspot → connected devices / or `swlan0` shown under the QR code).
-- [ ] Turn the hotspot off and on again. Within a few seconds the URL and QR code change to the new address.
 
-**B. Upload over the hotspot (client = second phone)**
-- [ ] The client joins the hotspot and scans the QR code. The page shows "Upload box works" and the box info line.
-- [ ] Upload a ~300 MB video. Record the **MB/s** shown on the page: ______ MB/s.
-- [ ] The file appears in the app's "Received files" list with the correct size. `/files` lists it.
-- [ ] Optional: compare checksums. The upload reply contains `sha256`, which you can see in the server logcat
-      (`adb logcat -s UploadBox`), and you can compare it with `sha256sum` of the original.
-- [ ] Upload several files at once (`multiple`). All finish.
+**B. Own Wi-Fi: create and join**
+- [ ] Wi-Fi is on and the regular hotspot is off. Mode is **Own Wi-Fi**. Tap Start.
+      Within about 5 s both codes are sharp, "Phones connected: 0 · __ GHz" shows, and the notification shows `DIRECT-UB-Box-…`.
+- [ ] **Android guest:** scan code 1 with the camera and tap Join. The box shows "Phone joined" and the count is 1.
+- [ ] Scan code 2. The page "Upload box works" opens. Note whether you had to turn mobile data off or tap "Stay connected": ______
+- [ ] **iPhone guest** (if available): the same two scans. Note any prompts.
+- [ ] Two guests at once: both join and the count is 2.
 
-**C. Screen off**
-- [ ] Start a ~300 MB upload, then press the power button on the **server** phone right away.
-      The upload must continue to 100% (keep the client screen on). Speed: ______ MB/s.
-- [ ] Leave the server screen off for 10+ minutes, then start another upload. The box is still reachable.
+**C. Own Wi-Fi: upload and speed**
+- [ ] Upload a ~300 MB video. Record the **MB/s** shown on the page: ______ MB/s (band: ____ GHz).
+- [ ] The file appears in "Received files" with the correct size.
+- [ ] Optional checksum: the `sha256` from `adb logcat -s UploadBox` should equal `sha256sum` of the original.
+- [ ] Upload several files at once. All finish.
 
-**D. Router Wi-Fi**
-- [ ] Turn the hotspot off. Both phones join the same router. The URL changes to the `wlan0` address.
-- [ ] Repeat B and C. Speed: ______ MB/s.
+**D. Own Wi-Fi: screen off and stability**
+- [ ] Start a ~300 MB upload, then press the power button on the **box** right away. The upload must reach 100%
+      (keep the guest screen on). Speed: ______ MB/s.
+- [ ] Leave the box screen off for 10+ minutes with no guests. Then a guest re-joins (the saved network should auto-reconnect)
+      and uploads. Does the network still exist? ______
+- [ ] Toggle the box's Wi-Fi off and on. Within about 10 s the group comes back with the **same name and password**,
+      and the guest reconnects.
+- [ ] Stop, then Start again: the same name and password.
 
-**E. Edge cases (optional)**
+**E. Existing Wi-Fi or hotspot (regression from 0.1.0)**
+- [ ] Mode **Existing Wi-Fi or hotspot** with the regular hotspot on. The URL shows the `swlan0` address. Upload ~300 MB: ______ MB/s.
+- [ ] Both phones on a router: the URL changes to `wlan0`. Upload ~300 MB: ______ MB/s.
+
+**F. Edge cases (optional)**
+- [ ] With the regular hotspot **on**, start own Wi-Fi. Either it works, or the red status explains the problem (note which).
 - [ ] Upload a file > 4 GB (a 4K60 clip). It completes and the size matches.
-- [ ] Stop the box mid-upload. The client shows an error and no partial file appears in the list.
-- [ ] Swipe the app away from recents. The server keeps running (the notification stays).
+- [ ] Stop the box mid-upload. The guest shows an error and no partial file appears in the list.
+- [ ] Swipe the app away from recents. The server and the Wi-Fi keep running (the notification stays).
 
-Note any Samsung-specific kills (the notification disappears or the server becomes unreachable) with the time
-and the screen state.
+Note any Samsung-specific kills (the notification disappears, the network vanishes or the server is
+unreachable) with the time and the screen state.

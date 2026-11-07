@@ -70,6 +70,20 @@ object IpPicker {
 
     fun pick(addrs: List<IfaceAddr>): IfaceAddr? = candidates(addrs).firstOrNull()
 
+    /** Wi-Fi Direct group owner address used by Android (wpa_supplicant/IpServer default). */
+    const val WIFI_DIRECT_DEFAULT_IP = "192.168.49.1"
+
+    /**
+     * Address of the box on its own Wi-Fi Direct network: the private IPv4 on the group's
+     * interface (e.g. "p2p-wlan0-0"), else any address in 192.168.49.0/24, else null.
+     */
+    fun pickForWifiDirect(addrs: List<IfaceAddr>, groupIface: String?): String? {
+        val priv = addrs.filter { isPrivateIpv4(it.address) }
+        groupIface?.let { gi -> priv.firstOrNull { it.iface == gi }?.let { return it.address } }
+        priv.firstOrNull { it.address.startsWith("192.168.49.") }?.let { return it.address }
+        return priv.firstOrNull { it.iface.startsWith("p2p") }?.address
+    }
+
     /** Test hook: replaces the live interface list (Robolectric has no real Wi-Fi). */
     @Volatile var overrideForTests: (() -> List<IfaceAddr>)? = null
 
