@@ -1,0 +1,42 @@
+name: android-box CI
+
+on:
+  push:
+    paths: ["android-box/**", ".github/workflows/android-box.yml"]
+  pull_request:
+    paths: ["android-box/**", ".github/workflows/android-box.yml"]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-box
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build release APK
+        run: ./gradlew assembleRelease --console=plain
+      - name: Unit + Robolectric tests
+        run: ./gradlew testReleaseUnitTest --console=plain
+      - name: Verify APKs (built and committed)
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          for apk in app/build/outputs/apk/release/app-release.apk dist/upload-box.apk; do
+            [ -f "$apk" ] || continue
+            echo "== $apk"; sha256sum "$apk"
+            "$BT/apksigner" verify --print-certs "$apk" | grep -E "DN|SHA-256"
+            "$BT/aapt2" dump badging "$apk" | grep -E "^package|SdkVersion"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upload-box-ci
+          path: |
+            android-box/app/build/outputs/apk/release/app-release.apk
+            android-box/app/build/reports/tests/

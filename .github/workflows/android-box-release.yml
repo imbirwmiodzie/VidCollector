@@ -1,0 +1,53 @@
+name: android-box release
+
+# Publishes the committed android-box/dist/upload-box.apk (exact bytes, so the SHA-256
+# matches the one in dist/upload-box.apk.sha256) as a GitHub Release v<versionName>.
+on:
+  push:
+    paths: ["android-box/dist/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check APK and read version
+        id: v
+        run: |
+          APK=android-box/dist/upload-box.apk
+          (cd android-box/dist && sha256sum -c upload-box.apk.sha256)
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify "$APK"
+          NAME=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          CODE=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          MIN=$("$BT/aapt2" dump badging "$APK" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p")
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          {
+            echo "Upload Box PoC $NAME (versionCode $CODE), minSdk $MIN (Android 8.0+), targetSdk 35."
+            echo
+            echo "Install: open this page on the phone, tap **upload-box.apk**, allow *Install unknown apps*, then *Install* (Play Protect: *More details → Install anyway*)."
+            echo
+            echo "- Size: $(stat -c %s "$APK") bytes"
+            echo "- SHA-256: \`$(cut -d' ' -f1 android-box/dist/upload-box.apk.sha256)\`"
+            echo "- Signed with the PoC key in android-box/keystore (APK Signature Scheme v2)."
+            echo "- Commit: $GITHUB_SHA"
+            echo
+            echo "See android-box/README.md for the one-time phone settings and the manual test checklist."
+          } > notes.md
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          cp android-box/dist/upload-box.apk.sha256 upload-box.apk.sha256
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" android-box/dist/upload-box.apk upload-box.apk.sha256 --clobber
+          else
+            gh release create "$TAG" android-box/dist/upload-box.apk upload-box.apk.sha256 \
+              --target "$GITHUB_SHA" --title "Upload Box $TAG" --notes-file notes.md
+          fi
